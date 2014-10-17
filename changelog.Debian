@@ -1,3 +1,11 @@
+qemu-server (3.3-2) unstable; urgency=low
+
+  * add cpulimit option
+
+  * add iso upload to personal storage
+
+ -- Henry Spanka - myVirtualserver <henry@myvirtualserver.de>  Fri, 17 Oct 2014 20:17:41 +0200
+
 qemu-server (3.3-1) unstable; urgency=low
 
   * enable write zeroes optimisations
