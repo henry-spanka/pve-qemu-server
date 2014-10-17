@@ -1739,6 +1739,13 @@ sub destroy_vm {
 
 	PVE::Storage::vdisk_free($storecfg, $volid);
     });
+	
+	my $isos = PVE::Storage::template_list ($storecfg, 'vmuploadisos', 'iso');
+
+	foreach my $item (@{$isos->{vmuploadisos}}) {
+		next if $item->{volid} !~ /^vmuploadisos:iso\/vm-$vmid-.*/g;
+		PVE::Storage::vdisk_free($storecfg, $item->{volid});
+	}
 
     if ($keep_empty_config) {
 	PVE::Tools::file_set_contents($conffile, "memory: 128\n");
@@ -3415,6 +3422,12 @@ sub vm_start {
 		    umask => 0077); };
 	my $err = $@;
 	die "start failed: $err" if $err;
+	
+	if($conf->{cpulimit} && check_running($vmid)) {
+		#system('/usr/sbin/qmcpulimit', '-b', '-q', '-z', '-p', check_running($vmid), '-l', $conf->{cpulimit}) == 0
+		#	or die "start failed: $?";
+		set_cpu_limit($vmid, $conf->{cpulimit});
+	}
 
 	print "migration listens on $migrate_uri\n" if $migrate_uri;
 
@@ -5299,6 +5312,17 @@ sub lspci {
     });
 
     return $devices;
+}
+
+sub set_cpu_limit {
+	my ($vmid, $limit) = @_;
+	if($vmid && defined($limit)) {
+	    my $vmpid = check_running($vmid);
+            system('/usr/sbin/qmcpulimit', '-b', '-q', '-z', '-p', $vmpid, '-l', $limit) == 0
+                or die "setting CPU limit failed: $?";
+	    return 1;
+	}
+    return undef;
 }
 
 1;

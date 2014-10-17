@@ -41,6 +41,10 @@ vmtar: vmtar.c utils.c
 
 sparsecp: sparsecp.c utils.c
 	gcc -O2 -Werror -Wall -Wtype-limits -o sparsecp sparsecp.c
+	
+qmcpulimit: qmcpulimit.c
+	gcc -o qmcpulimit qmcpulimit.c -lrt -DLINUX -Wall -O2 -DVERSION=2.2
+	strip qmcpulimit
 
 %.1.gz: %.1.pod
 	rm -f $@
@@ -62,7 +66,7 @@ qmrestore.1.pod: qmrestore
 vm.conf.5.pod: gen-vmconf-pod.pl PVE/QemuServer.pm 
 	perl -I. ./gen-vmconf-pod.pl >$@
 
-PKGSOURCES=qm qm.1.gz qm.1.pod qmrestore qmrestore.1.pod qmrestore.1.gz qmextract sparsecp vmtar qemu.init.d qmupdate control vm.conf.5.pod vm.conf.5.gz
+PKGSOURCES=qm qm.1.gz qm.1.pod qmrestore qmrestore.1.pod qmrestore.1.gz qmextract sparsecp vmtar qmcpulimit qemu.init.d qmupdate control vm.conf.5.pod vm.conf.5.gz
 
 .PHONY: install
 install: ${PKGSOURCES}
@@ -79,6 +83,7 @@ install: ${PKGSOURCES}
 	make -C PVE install
 	install -m 0755 qm ${DESTDIR}${SBINDIR}
 	install -m 0755 qmrestore ${DESTDIR}${SBINDIR}
+	install -m 0755 qmcpulimit ${DESTDIR}${SBINDIR}
 	install -D -m 0755 qmupdate ${DESTDIR}${VARLIBDIR}/qmupdate
 	install -D -m 0755 qemu.init.d ${DESTDIR}/etc/init.d/${PACKAGE}
 	install -m 0755 pve-bridge ${DESTDIR}${VARLIBDIR}/pve-bridge
@@ -124,7 +129,7 @@ upload:
 
 .PHONY: clean
 clean: 	
-	rm -rf build *.deb control vzsyscalls.ph _h2ph_pre.ph ${PACKAGE}-*.tar.gz dist *.1.gz *.pod vmtar sparsecp
+	rm -rf build *.deb control vzsyscalls.ph _h2ph_pre.ph ${PACKAGE}-*.tar.gz dist *.1.gz *.pod vmtar sparsecp qmcpulimit
 	find . -name '*~' -exec rm {} ';'
 
 

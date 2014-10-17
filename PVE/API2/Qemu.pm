@@ -6,6 +6,9 @@ use Cwd 'abs_path';
 use Net::SSLeay;
 use UUID;
 
+use File::Basename;
+use File::Path;
+
 use PVE::Cluster qw (cfs_read_file cfs_write_file);;
 use PVE::SafeSyslog;
 use PVE::Tools qw(extract_param);
@@ -56,6 +59,8 @@ my $check_storage_access = sub {
 	    my ($storeid, $size) = ($2 || $default_storage, $3);
 	    die "no storage ID specified (and no default storage)\n" if !$storeid;
 	    $rpcenv->check($authuser, "/storage/$storeid", ['Datastore.AllocateSpace']);
+	} elsif ($isCDROM && ($volid =~ /^vmuploadisos:iso\/vm-$vmid-.*/g)) {
+		$rpcenv->check($authuser, "/vms/$vmid", ['VM.Config.UploadISO', 'VM.Config.CDROM']);
 	} else {
 	    $rpcenv->check_volume_access($authuser, $storecfg, $vmid, $volid);
 	}
@@ -506,6 +511,9 @@ __PACKAGE__->register_method({
 	    { subdir => 'spiceproxy' },
 	    { subdir => 'sendkey' },
 	    { subdir => 'firewall' },
+		{ subdir => 'iso' },
+		{ subdir => 'isodl' },
+		{ subdir => 'cddrives' },
 	    ];
 
 	return $res;
@@ -1020,6 +1028,10 @@ my $update_vm_api  = sub {
 		my $balloon = $param->{'balloon'} || $conf->{memory} || $defaults->{memory};
 		PVE::QemuServer::vm_mon_cmd($vmid, "balloon", value => $balloon*1024*1024);
 	    }
+	
+	    if(defined($param->{cpulimit}) && $running) {
+			PVE::QemuServer::set_cpu_limit($vmid, $param->{cpulimit});
+	    }
 	};
 
 	if ($sync) {
@@ -1066,6 +1078,7 @@ my $vm_config_perm_list = [
 	    'VM.Config.Network',
 	    'VM.Config.HWType',
 	    'VM.Config.Options',
+		'VM.Config.UploadISO',
     ];
 
 __PACKAGE__->register_method({
@@ -3181,6 +3194,362 @@ __PACKAGE__->register_method({
 
 	PVE::QemuServer::lock_config($vmid, $updatefn);
 	return undef;
+    }});
+	
+# makes no sense for big images and backup files (because it 
+# create a copy of the file).
+# Upload own ISOs
+__PACKAGE__->register_method ({
+    name => 'iso_upload',
+    path => '{vmid}/iso', 
+    method => 'POST',
+    description => "Upload ISO images.",
+    permissions => { 
+		check => ['perm', '/vms/{vmid}', ['VM.Config.UploadISO']],
+    },
+    protected => 1,
+    parameters => {
+    	additionalProperties => 0,
+		properties => {
+			node => get_standard_option('pve-node'),
+			vmid => get_standard_option('pve-vmid'),
+				filename => { 
+				description => "The name of the file to create.",
+				type => 'string',
+			},
+			tmpfilename => { 
+				description => "The source file name. This parameter is usually set by the REST handler. You can only overwrite it when connecting to the trustet port on localhost.",
+				type => 'string',
+				optional => 1,
+			},
+		},
+    },
+    returns => { type => "string" },
+    code => sub {
+		my ($param) = @_;
+
+		my $rpcenv = PVE::RPCEnvironment::get();
+
+		my $authuser = $rpcenv->get_user();
+
+		my $node = $param->{node};
+		
+		my $vmid = $param->{vmid};
+		
+		my $cfg = cfs_read_file("storage.cfg");
+		
+		$param->{storage} = 'vmuploadisos';
+		
+		my $scfg = PVE::Storage::storage_check_enabled($cfg, $param->{storage}, $node);
+
+		die "cant upload to storage type '$scfg->{type}'\n" 
+			if !($scfg->{type} eq 'dir' || $scfg->{type} eq 'nfs');
+
+		my $tmpfilename = $param->{tmpfilename};
+		die "missing temporary file name\n" if !$tmpfilename;
+
+		my $size = -s $tmpfilename;
+		die "temporary file '$tmpfilename' does not exists\n" if !defined($size);
+
+		my $filename = $param->{filename};
+
+		chomp $filename;
+		$filename =~ s/^.*[\/\\]//;
+		$filename =~ s/\s/_/g;	
+
+		my $path;
+
+		if ($filename !~ m![^/]+\.[Ii][Ss][Oo]$!) {
+			raise_param_exc({ filename => "missing '.iso' extension" });
+		}
+		
+		if ($filename =~ /^vm-\d+/g) {
+			raise_param_exc({ filename => "Invalid filename" });
+		}
+
+		$path = PVE::Storage::get_iso_dir($cfg, $param->{storage});
+
+		die "storage '$param->{storage}' does not support iso content\n" 
+			if !$scfg->{content}->{iso};
+
+		my $dest = "$path/vm-$vmid-$filename";
+		my $dirname = dirname($dest);
+
+		# we simply overwrite when destination when file already exists
+
+		my $cmd;
+		
+		if ($node ne 'localhost' && $node ne PVE::INotify::nodename()) {
+			my $remip = PVE::Cluster::remote_node_ip($node);
+
+			my @ssh_options = ('-o', 'BatchMode=yes');
+
+			my @remcmd = ('/usr/bin/ssh', @ssh_options, $remip);
+
+			eval { 
+			# activate remote storage
+			PVE::Tools::run_command([@remcmd, '/usr/sbin/pvesm', 'status', 
+						 '--storage', $param->{storage}]); 
+			};
+			die "can't activate storage '$param->{storage}' on node '$node'\n" if $@;
+
+			PVE::Tools::run_command([@remcmd, '/bin/mkdir', '-p', $dirname],
+						errmsg => "mkdir failed");
+	 
+			$cmd = ['/usr/bin/scp', @ssh_options, $tmpfilename, "$remip:$dest"];
+		} else {
+			PVE::Storage::activate_storage($cfg, $param->{storage});
+			File::Path::make_path($dirname);
+			$cmd = ['cp', $tmpfilename, $dest];
+		}
+
+		my $worker = sub  {
+			my $upid = shift;
+			
+			print "starting file import from: $tmpfilename\n";
+			print "target node: $node\n";
+			print "target file: $dest\n";
+			print "file size is: $size\n";
+			print "command: " . join(' ', @$cmd) . "\n";
+
+			eval { PVE::Tools::run_command($cmd, errmsg => 'import failed'); };
+			if (my $err = $@) {
+				unlink $dest;
+				die $err;
+			}
+			print "finished file import successfully\n";
+		};
+
+		my $upid = $rpcenv->fork_worker('imgcopy', $vmid, $authuser, $worker);
+
+		# apache removes the temporary file on return, so we need
+		# to wait here to make sure the worker process starts and
+		# opens the file before it gets removed.
+		sleep(1);
+
+		return $upid;
+   }});
+   
+__PACKAGE__->register_method({
+    name => 'iso_download', 
+    path => '{vmid}/isodl', 
+    method => 'POST',
+    permissions => {
+		check => ['perm', '/vms/{vmid}', ['VM.Config.UploadISO']],
+    },
+    description => "Download ISOs",
+    proxyto => 'node',
+    protected => 1,
+    parameters => {
+    	additionalProperties => 0,
+		properties => {
+			node => get_standard_option('pve-node'),
+			vmid => get_standard_option('pve-vmid'),
+			url => { type => 'string' },
+		},
+    },
+    returns => { type => "string" },
+    code => sub {
+		my ($param) = @_;
+
+		my $rpcenv = PVE::RPCEnvironment::get();
+
+		my $user = $rpcenv->get_user();
+
+		my $node = $param->{node};
+		
+		my $vmid = $param->{vmid};
+		
+		$param->{storage} = 'vmuploadisos';
+
+		my $url = $param->{url};
+
+		my $cfg = cfs_read_file("storage.cfg");
+		
+		my $scfg = PVE::Storage::storage_check_enabled($cfg, $param->{storage}, $node);
+
+		die "cannot download to storage type '$scfg->{type}'" 
+			if !($scfg->{type} eq 'dir' || $scfg->{type} eq 'nfs');
+
+		die "storage '$param->{storage}' does not support iso content\n" 
+			if !$scfg->{content}->{iso};
+		
+		die "Invalid URL or missing .iso extension - $url\n"
+			if $url !~ /^(https?:\/\/)?([\da-z\.-]+)\.([a-z\.]{2,6})([\/\w \.-]*)*[Ii][Ss][Oo]\/?$/;
+			
+		my ($filename, $extension) = $url =~ /.*\/(.*?)\.(.*)/;
+
+		chomp $filename;
+		$filename =~ s/^.*[\/\\]//;
+		$filename =~ s/\s/_/g;	
+		
+		die "Invalid filename"
+			if $filename =~ /^vm-\d+/g;
+
+		my $destdir = PVE::Storage::get_iso_dir($cfg, $param->{storage});
+		my $dest = "$destdir/vm-$vmid-$filename.$extension";
+
+		my $worker = sub  {
+			my $upid = shift;
+			
+			print "starting template download from: $url\n";
+			print "target file: $dest\n";
+
+			eval {
+
+				if (-f $dest) {
+					print "file already exists - no need to download\n";
+					return;
+				}
+
+				local %ENV;
+				my $dccfg = PVE::Cluster::cfs_read_file('datacenter.cfg');
+				if ($dccfg->{http_proxy}) {
+					$ENV{http_proxy} = $dccfg->{http_proxy};
+				}
+
+				my @cmd = ('/usr/bin/wget', '--progress=dot:mega', '-O', $dest, $url);
+				if (system (@cmd) != 0) {
+					die "download failed - $!\n";
+				}
+			};
+			my $err = $@;
+
+			if ($err) {
+				print "\n";
+				die $err if $err;
+			}
+
+			print "download finished\n";
+		};
+
+		return $rpcenv->fork_worker('download', $vmid, $user, $worker);
+    }});
+   
+__PACKAGE__->register_method ({
+    name => 'iso_delete',
+    path => '{vmid}/iso',
+    method => 'DELETE',
+    description => "Delete ISOs",
+    permissions => { 
+		check => ['perm', '/vms/{vmid}', ['VM.Config.UploadISO']],
+    },
+    protected => 1,
+    proxyto => 'node',
+    parameters => {
+    	additionalProperties => 0,
+		properties => { 
+			node => get_standard_option('pve-node'),
+			vmid => get_standard_option('pve-vmid'),
+			volume => {
+			description => "Volume identifier",
+			type => 'string', 
+			},
+		},
+    },
+    returns => { type => 'null' },
+    code => sub {
+		my ($param) = @_;
+
+		my $rpcenv = PVE::RPCEnvironment::get();
+		
+		my $authuser = $rpcenv->get_user();
+
+		my $cfg = cfs_read_file('storage.cfg');
+		
+		my $vmid = $param->{vmid};
+		
+		die "No permission to that file" if $param->{volume} !~ /^vmuploadisos:iso\/vm-$vmid-.*/g;
+
+		PVE::Storage::vdisk_free ($cfg, $param->{volume});
+
+		return undef;
+    }});
+   
+__PACKAGE__->register_method ({
+    name => 'iso_index', 
+    path => '{vmid}/iso',
+    method => 'GET',
+    description => "List ISOs",
+    permissions => { 
+		check => ['perm', '/vms/{vmid}', ['VM.Config.UploadISO']],
+    },
+    protected => 1,
+    proxyto => 'node',
+    parameters => {
+    	additionalProperties => 0,
+    },
+    returns => {
+		type => 'array',
+		items => {
+			type => "object",
+			properties => { 
+				volid => { 
+					type => 'string' 
+				} 
+			},
+		},
+		links => [ { rel => 'child', href => "{volid}" } ],
+    },
+    code => sub {
+		my ($param) = @_;
+
+		my $rpcenv = PVE::RPCEnvironment::get();
+
+		my $authuser = $rpcenv->get_user();
+		
+		my $vmid = $param->{vmid};
+
+		my $storeid = 'vmuploadisos';
+
+		my $cfg = cfs_read_file("storage.cfg");
+
+		my $res = [];
+		my $data = PVE::Storage::template_list ($cfg, $storeid, 'iso');
+
+		foreach my $item (@{$data->{$storeid}}) {
+			next if $item->{volid} !~ /^vmuploadisos:iso\/vm-$vmid-.*/g;
+			$item->{content} = 'iso';
+			push @$res, $item;
+		}
+
+		return $res;    
+    }});
+	
+__PACKAGE__->register_method({
+    name => 'cddrives_index',
+    path => '{vmid}/cddrives',
+    method => 'GET',
+    proxyto => 'node',
+    description => "Get cddrives",
+    permissions => {
+		check => ['perm', '/vms/{vmid}', [ 'VM.Config.UploadISO', 'VM.Config.CDROM' ]],
+    },
+    parameters => {
+    	additionalProperties => 0,
+		properties => {
+			node => get_standard_option('pve-node'),
+			vmid => get_standard_option('pve-vmid'),
+		},
+    },
+    returns => {
+		type => "array",
+    },
+    code => sub {
+		my ($param) = @_;
+
+		my $conf = PVE::QemuServer::load_config($param->{vmid});
+		
+		my $res = [];
+
+		delete $conf->{snapshots};
+		
+		foreach my $key ( keys $conf ) {
+			$conf->{$key} = PVE::QemuServer::parse_drive($key, $conf->{$key});
+			$conf->{$key}->{name} = $key;
+			push @$res, $conf->{$key} if $conf->{$key}->{media} eq 'cdrom';
+		}
+		return $res;
     }});
 
 1;
