@@ -5178,15 +5178,13 @@ sub qemu_drive_mirror {
 
     my $dst_path = PVE::Storage::path($storecfg, $dst_volid);
 
-    if ($format) {
-	#fixme : sometime drive-mirror timeout, but works fine after.
-	# (I have see the problem with big volume > 200GB), so we need to eval
-	eval { vm_mon_cmd($vmid, "drive-mirror", timeout => 10, device => "drive-$drive", mode => "existing",
-			  sync => "full", target => $dst_path, format => $format); };
-    } else {
-	eval { vm_mon_cmd($vmid, "drive-mirror", timeout => 10, device => "drive-$drive", mode => "existing",
-			  sync => "full", target => $dst_path); };
-    }
+    my $opts = { timeout => 10, device => "drive-$drive", mode => "existing", sync => "full", target => $dst_path };
+    $opts->{format} = $format if $format;
+
+    #fixme : sometime drive-mirror timeout, but works fine after.
+    # (I have see the problem with big volume > 200GB), so we need to eval
+    eval { vm_mon_cmd($vmid, "drive-mirror", %$opts); }; 
+    # ignore errors here
 
     eval {
 	while (1) {
@@ -5229,21 +5227,9 @@ sub qemu_drive_mirror {
 	vm_resume($vmid, 1) if $frozen;
 
     };
-    if (my $err = $@) {
-	eval {
-	    vm_mon_cmd($vmid, "block-job-cancel", device => "drive-$drive");
-	    while (1) {
-		my $stats = vm_mon_cmd($vmid, "query-block-jobs");
-		my $stat = @$stats[0];
-		last if !$stat;
-		sleep 1;
-	    }
-	};
-	die "mirroring error: $err";
-    }
+    my $err = $@;
 
-    if ($vmiddst != $vmid) {
-	# if we clone a disk for a new target vm, we don't switch the disk
+    my $cancel_job = sub {
 	vm_mon_cmd($vmid, "block-job-cancel", device => "drive-$drive");
 	while (1) {
 	    my $stats = vm_mon_cmd($vmid, "query-block-jobs");
@@ -5251,6 +5237,16 @@ sub qemu_drive_mirror {
 	    last if !$stat;
 	    sleep 1;
 	}
+    };
+
+    if ($err) {
+	eval { &$cancel_job(); }; 
+	die "mirroring error: $err";
+    }
+
+    if ($vmiddst != $vmid) {
+	# if we clone a disk for a new target vm, we don't switch the disk
+	&$cancel_job(); # so we call block-job-cancel
     }
 }
 
