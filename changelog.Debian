@@ -1,3 +1,9 @@
+qemu-server (3.3-4) unstable; urgency=low
+
+  * drive-mirror: further improvements
+
+ -- Henry Spanka - myVirtualserver <henry@myvirtualserver.de>  Tue, 11 Nov 2014 11:54:36 +0100
+
 qemu-server (3.3-3) unstable; urgency=low
 
   * drive-mirror: wait that busy eq false before block-job-complete
