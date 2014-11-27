@@ -2705,7 +2705,7 @@ sub config_to_command {
     #push @$cmd, '-soundhw', $soundhw if $soundhw;
 
     if($conf->{agent}) {
-	my $qgasocket = qga_socket($vmid);
+	my $qgasocket = qmp_socket($vmid, 1);
 	my $pciaddr = print_pci_addr("qga0", $bridges);
 	push @$devices, '-chardev', "socket,path=$qgasocket,server,nowait,id=qga0";
 	push @$devices, '-device', "virtio-serial,id=qga0$pciaddr";
@@ -2881,11 +2881,6 @@ sub qmp_socket {
     my ($vmid, $qga) = @_;
     my $sockettype = $qga ? 'qga' : 'qmp';
     return "${var_run_tmpdir}/$vmid.$sockettype";
-}
-
-sub qga_socket {
-    my ($vmid) = @_;
-    return "${var_run_tmpdir}/$vmid.qga";
 }
 
 sub pidfile_name {
@@ -3499,9 +3494,8 @@ sub vm_qmp_command {
 
     eval {
 	die "VM $vmid not running\n" if !check_running($vmid, $nocheck);
-	my $qga = ($cmd->{execute} =~ /^guest\-+/)?1:0;
-	my $sname = qmp_socket($vmid, $qga);
-	if (-e $sname) {
+	my $sname = qmp_socket($vmid);
+	if (-e $sname) { # test if VM is reasonambe new and supports qmp/qga
 	    my $qmpclient = PVE::QMPClient->new();
 
 	    $res = $qmpclient->cmd($vmid, $cmd, $timeout);
@@ -3631,8 +3625,8 @@ sub vm_stop {
 	
 	eval {
 	    if ($shutdown) {
-		if($config->{agent}){
-		    vm_mon_cmd($vmid,"guest-shutdown");
+		if ($config->{agent}) {
+		    $nocheck ? vm_mon_cmd_nocheck($vmid, "guest-shutdown") : vm_mon_cmd($vmid, "guest-shutdown");
 		} else {
 		    $nocheck ? vm_mon_cmd_nocheck($vmid, "system_powerdown") : vm_mon_cmd($vmid, "system_powerdown");
 		}
