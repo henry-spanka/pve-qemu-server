@@ -1,3 +1,9 @@
+qemu-server (3.3-5) unstable; urgency=low
+
+  * depend on pve-database
+
+ -- Henry Spanka - myVirtualserver <henry@myvirtualserver.de>  Sun, 30 Nov 2014 22:27:00 +0100
+
 qemu-server (3.3-4) unstable; urgency=low
 
   * drive-mirror: further improvements
