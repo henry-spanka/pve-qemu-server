@@ -1,3 +1,19 @@
+qemu-server (3.3-6) unstable; urgency=low
+
+  * package: depend on pve-database
+
+  * vzdump: use qga freeze in vzdump in snapshot mode
+  
+  * add custom numa topology support
+
+  * API change: snapshot_create - remove unused freezefs flag.
+  
+  * snapshot_create: call fsfreeze if agent flag is set
+
+  * qmpclient: use guest-sync-delimited
+
+ -- Henry Spanka - myVirtualserver <henry@myvirtualserver.de>  Thu, 25 Dec 2014 17:24:47 +0100
+
 qemu-server (3.3-5) unstable; urgency=low
 
   * depend on pve-database
