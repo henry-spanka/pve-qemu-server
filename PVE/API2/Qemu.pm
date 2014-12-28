@@ -1631,9 +1631,6 @@ __PACKAGE__->register_method({
 	my $migratedfrom = extract_param($param, 'migratedfrom');
 	raise_param_exc({ migratedfrom => "Only root may use this option." })
 	    if $migratedfrom && $authuser ne 'root@pam';
-		
-	my $dbconf = PVE::Database::load_vmdb_conf($vmid);
-	die "VM $vmid is locked due to exceeding the network bandwidth\n" if($dbconf->{network}->{netlock} ge 1);
 
 	# read spice ticket from STDIN
 	my $spice_ticket;

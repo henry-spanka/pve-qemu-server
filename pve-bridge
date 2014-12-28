@@ -5,6 +5,7 @@ use warnings;
 use PVE::QemuServer;
 use PVE::Tools qw(run_command);
 use PVE::Network;
+use PVE::Database;
 
 my $iface = shift;
 
@@ -26,9 +27,14 @@ die "unable to get network config '$netid'\n"
 my $net = PVE::QemuServer::parse_net($conf->{$netid});
 die "unable to parse network config '$netid'\n" if !$net;
 
+my $vmdbconf = PVE::Database::load_vmdb_conf($vmid);
+
+my $rate = $vmdbconf->{network}->{rate};
+$rate = $vmdbconf->{network}->{exceededrate} if($vmdbconf->{network}->{netlock} eq 1 && $vmdbconf->{network}->{exceededrate});
+
 PVE::Network::tap_create($iface, $net->{bridge});
 
-PVE::Network::tap_rate_limit($iface, $net->{rate}) if $net->{rate};
+PVE::Network::tap_rate_limit($iface, $rate) if $rate;
 
 PVE::Network::tap_plug($iface, $net->{bridge}, $net->{tag}, $net->{firewall});
 
