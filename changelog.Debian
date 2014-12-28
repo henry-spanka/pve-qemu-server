@@ -1,3 +1,9 @@
+qemu-server (3.3-7) unstable; urgency=low
+
+  * use pve-database for limiting the speed of a VM
+
+ -- Henry Spanka - myVirtualserver <henry@myvirtualserver.de>  Sun, 28 Dec 2014 15:00:22 +0100
+
 qemu-server (3.3-6) unstable; urgency=low
 
   * package: depend on pve-database
