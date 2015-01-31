@@ -1241,6 +1241,8 @@ __PACKAGE__->register_method({
 
 	    PVE::QemuServer::vm_destroy($storecfg, $vmid, $skiplock);
 
+	    PVE::Database::remove_vmdb_conf($vmid);
+
 	    PVE::AccessControl::remove_vm_from_pool($vmid);
 	};
 
