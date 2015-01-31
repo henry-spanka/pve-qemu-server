@@ -1,3 +1,9 @@
+qemu-server (3.3-8) unstable; urgency=low
+
+  * delete database file on destroying a VM
+
+ -- Henry Spanka - myVirtualserver <henry@myvirtualserver.de>  Sat, 31 Jan 2015 15:01:01 +0100
+
 qemu-server (3.3-7) unstable; urgency=low
 
   * use pve-database for limiting the speed of a VM
