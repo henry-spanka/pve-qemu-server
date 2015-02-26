@@ -3482,7 +3482,11 @@ __PACKAGE__->register_method ({
     protected => 1,
     proxyto => 'node',
     parameters => {
-    	additionalProperties => 0,
+	    additionalProperties => 0,
+	    properties => {
+	        node => get_standard_option('pve-node'),
+	        vmid => get_standard_option('pve-vmid'),
+	    },
     },
     returns => {
 		type => 'array',
