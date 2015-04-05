@@ -1,3 +1,11 @@
+qemu-server (3.3-9) unstable; urgency=low
+
+  * implement packets accounting for Qemu
+
+  * add node and vm property to forward request to node(list isos)
+
+ -- Henry Spanka - myVirtualserver <henry@myvirtualserver.de>  Sun, 05 Apr 2015 15:14:23 +0200
+
 qemu-server (3.3-8) unstable; urgency=low
 
   * delete database file on destroying a VM
