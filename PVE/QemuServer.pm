@@ -2277,6 +2277,8 @@ sub vmstatus {
 
 	$d->{netout} = 0;
 	$d->{netin} = 0;
+	$d->{pktsout} = 0;
+	$d->{pktsin} = 0;
 
 	$d->{diskread} = 0;
 	$d->{diskwrite} = 0;
@@ -2295,6 +2297,8 @@ sub vmstatus {
 
 	$d->{netout} += $netdev->{$dev}->{receive};
 	$d->{netin} += $netdev->{$dev}->{transmit};
+	$d->{pktsout} += $netdev->{$dev}->{receivepkts};
+	$d->{pktsin} += $netdev->{$dev}->{transmitpkts};
     }
 
     my $ctime = gettimeofday;
