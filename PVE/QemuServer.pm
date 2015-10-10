@@ -191,7 +191,7 @@ my $confdesc = {
     cpulimit => {
 	optional => 1,
 	type => 'integer',
-	description => "Limit of CPU usage in per cent. Note if the computer has 2 CPUs, it has total of 200% CPU time. Value '0' indicates no CPU limit.\n\nNOTE: This option is currently ignored.",
+	description => "Limit of CPU usage in per cent. Note if the computer has 2 CPUs, it has total of 200% CPU time. Value '0' indicates no CPU limit.",
 	minimum => 0,
 	default => 0,
     },
