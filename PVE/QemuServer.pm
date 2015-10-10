@@ -2262,6 +2262,7 @@ sub vmstatus {
 
 	$d->{cpus} = ($conf->{sockets} || 1) * ($conf->{cores} || 1);
 	$d->{cpus} = $cpucount if $d->{cpus} > $cpucount;
+    $d->{cpulimit} = $conf->{cpulimit} || 0;
 
 	$d->{name} = $conf->{name} || "VM $vmid";
 	$d->{maxmem} = $conf->{memory} ? $conf->{memory}*(1024*1024) : 0;
@@ -2334,8 +2335,11 @@ sub vmstatus {
 
 	if ($dtime > 1000) {
 	    my $dutime = $used -  $old->{used};
-
-	    $d->{cpu} = (($dutime/$dtime)* $cpucount) / $d->{cpus};
+        if ($d->{cpulimit} && $d->{cpulimit} > 0) {
+	       $d->{cpu} = (($dutime/$dtime)* $cpucount) / $d->{cpus} / ($d->{cpulimit} / $d->{cpus} / 100);
+        } else {
+            $d->{cpu} = (($dutime/$dtime)* $cpucount) / $d->{cpus};
+        }
 	    $last_proc_pid_stat->{$pid} = {
 		time => $ctime,
 		used => $used,
