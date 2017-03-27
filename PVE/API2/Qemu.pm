@@ -3325,7 +3325,7 @@ __PACKAGE__->register_method ({
 			print "finished file import successfully\n";
 		};
 
-		my $upid = $rpcenv->fork_worker('imgcopy', $vmid, $authuser, $worker);
+		my $upid = $rpcenv->fork_worker('qmisoupload', $vmid, $authuser, $worker);
 
 		# apache removes the temporary file on return, so we need
 		# to wait here to make sure the worker process starts and
@@ -3428,7 +3428,7 @@ __PACKAGE__->register_method({
 			print "download finished\n";
 		};
 
-		return $rpcenv->fork_worker('download', $vmid, $user, $worker);
+		return $rpcenv->fork_worker('qmisodownload', $vmid, $user, $worker);
     }});
    
 __PACKAGE__->register_method ({
